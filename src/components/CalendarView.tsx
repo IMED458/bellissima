@@ -76,6 +76,7 @@ export default function CalendarView({
   const [formEmployeeId, setFormEmployeeId] = useState('');
   const [formDate, setFormDate] = useState('2026-06-28');
   const [formTime, setFormTime] = useState('10:00');
+  const [formEndTime, setFormEndTime] = useState('11:00');
   const [formCustomPrice, setFormCustomPrice] = useState<number | ''>('');
   const [formDiscountType, setFormDiscountType] = useState<DiscountType>('none');
   const [formDiscountValue, setFormDiscountValue] = useState<number>(0);
@@ -83,6 +84,15 @@ export default function CalendarView({
   const [formPaymentMethod, setFormPaymentMethod] = useState<PaymentMethod>('cash');
   const [formAppointmentStatus, setFormAppointmentStatus] = useState<AppointmentStatus>('booked');
   const [formNote, setFormNote] = useState('');
+
+  // Payment modal state — გადახდის გვერდი (ფასის ცვლილება + ფასდაკლება)
+  const [paymentAppt, setPaymentAppt] = useState<Appointment | null>(null);
+  const [payPrice, setPayPrice] = useState<number>(0);
+  const [payDiscountType, setPayDiscountType] = useState<DiscountType>('none');
+  const [payDiscountValue, setPayDiscountValue] = useState<number>(0);
+  const [payMethod, setPayMethod] = useState<PaymentMethod>('cash');
+  const [payFull, setPayFull] = useState<boolean>(true);
+  const [payPartialAmount, setPayPartialAmount] = useState<number>(0);
   
   // Laser epilation zones and messaging state
   const [formSelectedZones, setFormSelectedZones] = useState<string[]>([]);
@@ -139,14 +149,39 @@ export default function CalendarView({
   };
 
   // When procedure changes, auto-load standard price
+  // დროის დამხმარეები — "HH:MM" ფორმატში
+  const addMinutesToTime = (time: string, mins: number): string => {
+    const [h, m] = time.split(':').map(Number);
+    let total = (h * 60 + m + mins) % (24 * 60);
+    if (total < 0) total += 24 * 60;
+    const nh = Math.floor(total / 60);
+    const nm = total % 60;
+    return `${nh < 10 ? '0' : ''}${nh}:${nm < 10 ? '0' : ''}${nm}`;
+  };
+
+  const diffMinutes = (start: string, end: string): number => {
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    return (eh * 60 + em) - (sh * 60 + sm);
+  };
+
   const handleProcedureChange = (id: string) => {
     setFormProcedureId(id);
     const selectedProc = procedures.find(p => p.id === id);
     if (selectedProc) {
       setFormCustomPrice(selectedProc.price);
+      // დასრულების საათი ავტომატურად — დაწყება + პროცედურის ხანგრძლივობა (შემდეგ ხელით ჩასწორებადია)
+      setFormEndTime(addMinutesToTime(formTime, selectedProc.duration || 30));
     } else {
       setFormCustomPrice('');
     }
+  };
+
+  // დაწყების საათის შეცვლისას — დასრულება გადაიწევს იმავე ხანგრძლივობით
+  const handleStartTimeChange = (newStart: string) => {
+    const dur = Math.max(0, diffMinutes(formTime, formEndTime)) || (procedures.find(p => p.id === formProcedureId)?.duration || 30);
+    setFormTime(newStart);
+    setFormEndTime(addMinutesToTime(newStart, dur));
   };
 
   // Calculations for booking form final price
@@ -293,6 +328,7 @@ export default function CalendarView({
     setFormEmployeeId(currentUser.role === 'employee' ? currentUser.id : employees[1]?.id || employees[0]?.id || '');
     setFormDate(dateOverride ? dateOverride.toISOString().split('T')[0] : activeDate.toISOString().split('T')[0]);
     setFormTime(timeOverride || '11:00');
+    setFormEndTime(addMinutesToTime(timeOverride || '11:00', procedures[0]?.duration || 30));
     setFormCustomPrice(procedures[0]?.price || '');
     setFormDiscountType('none');
     setFormDiscountValue(0);
@@ -327,7 +363,9 @@ export default function CalendarView({
     
     const [d, t] = appt.dateTime.split('T');
     setFormDate(d);
-    setFormTime(t?.substring(0, 5) || '12:00');
+    const startT = t?.substring(0, 5) || '12:00';
+    setFormTime(startT);
+    setFormEndTime(addMinutesToTime(startT, appt.duration || 30));
     setFormCustomPrice(appt.price);
     setFormDiscountType(appt.discountType);
     setFormDiscountValue(appt.discountValue);
@@ -371,7 +409,10 @@ export default function CalendarView({
 
     // 2. Build Appointment payload
     const dateTimeStr = `${formDate}T${formTime}`;
-    
+    // ხანგრძლივობა ითვლება ხელით მითითებული საათიდან—საათამდე; თუ არასწორია, აიღება პროცედურის სტანდარტი
+    const manualDuration = diffMinutes(formTime, formEndTime);
+    const finalDuration = manualDuration > 0 ? manualDuration : (procedures.find(p => p.id === formProcedureId)?.duration || 30);
+
     const finalAppointment: Appointment = {
       id: selectedAppointment ? selectedAppointment.id : `appt_${Date.now()}`,
       customerId: targetCustomer.id,
@@ -380,7 +421,7 @@ export default function CalendarView({
       procedureId: formProcedureId,
       employeeId: formEmployeeId,
       dateTime: dateTimeStr,
-      duration: procedures.find(p => p.id === formProcedureId)?.duration || 30,
+      duration: finalDuration,
       price: Number(formCustomPrice) || 0,
       discountType: formDiscountType,
       discountValue: Number(formDiscountValue) || 0,
@@ -427,6 +468,44 @@ export default function CalendarView({
     };
     onUpdateAppointment(updated);
     onLogAction('ვიზიტის გადახდის შეცვლა', `ვიზიტის #${apptIdShort(appt.id)} გადახდის სტატუსი: ${status} (${method})`);
+  };
+
+  // გადახდის გვერდის გახსნა — ნებისმიერ მომხმარებელს შეუძლია ფასის ცვლილება და ფასდაკლება
+  const handleOpenPayment = (appt: Appointment) => {
+    setPaymentAppt(appt);
+    setPayPrice(appt.price || appt.finalPrice || 0);
+    setPayDiscountType(appt.discountType || 'none');
+    setPayDiscountValue(appt.discountValue || 0);
+    setPayMethod(appt.paymentMethod || 'cash');
+    setPayFull(true);
+    setPayPartialAmount(appt.paidAmount || 0);
+  };
+
+  const computePayFinal = (): number => {
+    const base = Number(payPrice) || 0;
+    if (payDiscountType === 'amount') return Math.max(0, base - payDiscountValue);
+    if (payDiscountType === 'percent') return Math.max(0, base - Math.round((base * payDiscountValue) / 100));
+    return base;
+  };
+
+  const handleSavePayment = () => {
+    if (!paymentAppt) return;
+    const final = computePayFinal();
+    const paid = payFull ? final : Math.min(Number(payPartialAmount) || 0, final);
+    const status: PaymentStatus = final > 0 && paid >= final ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+    onUpdateAppointment({
+      ...paymentAppt,
+      price: Number(payPrice) || 0,
+      discountType: payDiscountType,
+      discountValue: Number(payDiscountValue) || 0,
+      finalPrice: final,
+      paidAmount: paid,
+      paymentStatus: status,
+      paymentMethod: payMethod,
+      updatedAt: new Date().toISOString(),
+    });
+    onLogAction('გადახდის დამუშავება', `ვიზიტი #${apptIdShort(paymentAppt.id)} (${paymentAppt.customerName}) — გადახდილია ${paid}₾ / ${final}₾ (${payMethod})`);
+    setPaymentAppt(null);
   };
 
   // სრული წაშლა — ჩაწერა ქრება კალენდრიდან და დრო თავისუფლდება სხვისთვის (ხელმისაწვდომია ყველასთვის)
@@ -540,34 +619,34 @@ export default function CalendarView({
       </div>
 
       {/* Advanced Filter Toolbar */}
-      <div className="bg-white px-4 py-3 border border-stone-100 rounded-2xl flex flex-wrap items-center gap-4 text-xs shadow-xs">
-        <div className="flex items-center gap-2 text-stone-500">
+      <div className="bg-white px-3 py-3 sm:px-4 border border-stone-100 rounded-2xl flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 sm:gap-4 text-xs shadow-xs">
+        <div className="flex items-center gap-2 text-stone-500 shrink-0">
           <Filter className="w-4 h-4 text-primary-500" />
           <span className="font-semibold">ფილტრები:</span>
         </div>
 
         {/* Employee Filter */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-stone-400">სპეციალისტი:</span>
+        <div className="flex items-center gap-1.5 min-w-0 sm:flex-initial">
+          <span className="text-stone-400 shrink-0">სპეც.:</span>
           <select
             value={filterEmployeeId}
             onChange={(e) => setFilterEmployeeId(e.target.value)}
-            className="bg-stone-50 border border-stone-200 rounded-lg py-1 px-2 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-semibold text-stone-700"
+            className="flex-1 min-w-0 sm:flex-initial sm:max-w-[170px] truncate bg-stone-50 border border-stone-200 rounded-lg py-1.5 px-2 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-semibold text-stone-700"
           >
             <option value="all">ყველა სპეციალისტი</option>
             {employees.filter(e => e.id !== 'emp_1').map(emp => (
-              <option key={emp.id} value={emp.id}>{emp.name} ({emp.profession})</option>
+              <option key={emp.id} value={emp.id}>{emp.name}</option>
             ))}
           </select>
         </div>
 
         {/* Procedure Filter */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-stone-400">პროცედურა:</span>
+        <div className="flex items-center gap-1.5 min-w-0 sm:flex-initial">
+          <span className="text-stone-400 shrink-0">პროც.:</span>
           <select
             value={filterProcedureId}
             onChange={(e) => setFilterProcedureId(e.target.value)}
-            className="bg-stone-50 border border-stone-200 rounded-lg py-1 px-2 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-semibold text-stone-700"
+            className="flex-1 min-w-0 sm:flex-initial sm:max-w-[170px] truncate bg-stone-50 border border-stone-200 rounded-lg py-1.5 px-2 focus:outline-hidden focus:ring-1 focus:ring-primary-500 font-semibold text-stone-700"
           >
             <option value="all">ყველა პროცედურა</option>
             {procedures.map(p => (
@@ -617,10 +696,10 @@ export default function CalendarView({
                           return (
                             <div
                               key={appt.id}
-                              className={`p-3 rounded-xl border transition-all relative flex flex-col md:flex-row md:items-center md:justify-between gap-3 shadow-2xs ${getStatusColor(appt.appointmentStatus)}`}
+                              className={`p-3 rounded-xl border transition-all relative flex flex-col md:flex-row md:items-center md:justify-between gap-3 shadow-2xs overflow-hidden ${getStatusColor(appt.appointmentStatus)}`}
                               style={{ borderLeftColor: getEmployeeColor(appt.employeeId), borderLeftWidth: '6px' }}
                             >
-                              <div className="space-y-1">
+                              <div className="space-y-1 min-w-0 flex-1">
                                 <div className="flex items-center flex-wrap gap-2">
                                   <span className="font-mono text-xs font-bold text-stone-400 bg-white/60 px-1.5 py-0.5 rounded-md border border-stone-200/30">
                                     {appt.dateTime.split('T')[1]?.substring(0, 5)}
@@ -651,13 +730,13 @@ export default function CalendarView({
                                   </div>
                                 )}
 
-                                <p className="text-xs opacity-80 font-mono">
+                                <p className="text-xs opacity-80 font-mono break-words">
                                   ტელ: {appt.phone} | ხანგრძლივობა: {appt.duration} წთ
                                   {appt.note && ` | შენიშვნა: "${appt.note}"`}
                                 </p>
                               </div>
 
-                              <div className="flex items-center gap-3 justify-between md:justify-end border-t border-dashed border-stone-200/30 pt-2 md:pt-0 md:border-0">
+                              <div className="flex items-center gap-3 justify-between md:justify-end border-t border-dashed border-stone-200/30 pt-2 md:pt-0 md:border-0 shrink-0">
                                 {/* Details & Pricing */}
                                 <div className="text-left md:text-right">
                                   <p className="text-[10px] opacity-70">საბოლოო ფასი</p>
@@ -688,7 +767,7 @@ export default function CalendarView({
 
                                   {appt.paymentStatus !== 'paid' && (
                                     <button
-                                      onClick={() => handleQuickPaymentChange(appt, 'paid', 'cash')}
+                                      onClick={() => handleOpenPayment(appt)}
                                       className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-0.5 cursor-pointer"
                                       title="გადახდა"
                                     >
@@ -1047,15 +1126,26 @@ export default function CalendarView({
 
                 <div>
                   <label className="block text-xs font-semibold text-stone-600 mb-1">
-                    საათი *
+                    ვიზიტის დრო (საათიდან — საათამდე)
                   </label>
-                  <input
-                    type="time"
-                    required
-                    value={formTime}
-                    onChange={(e) => setFormTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 font-mono"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={formTime}
+                      onChange={(e) => handleStartTimeChange(e.target.value)}
+                      className="w-full px-2.5 py-2 border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 font-mono"
+                    />
+                    <span className="text-stone-400 text-xs shrink-0">—</span>
+                    <input
+                      type="time"
+                      value={formEndTime}
+                      onChange={(e) => setFormEndTime(e.target.value)}
+                      className="w-full px-2.5 py-2 border border-stone-200 rounded-xl text-sm focus:outline-hidden focus:ring-2 font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-400 mt-0.5">
+                    ხანგრძლივობა: {Math.max(0, diffMinutes(formTime, formEndTime))} წთ
+                  </p>
                 </div>
               </div>
 
@@ -1293,6 +1383,131 @@ export default function CalendarView({
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* PAYMENT PAGE MODAL — ფასის ცვლილება + ფასდაკლება + გადახდა (ხელმისაწვდომია ყველასთვის) */}
+      {paymentAppt && (
+        <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md overflow-hidden shadow-xl border border-stone-100 animate-zoomIn flex flex-col max-h-[92vh]">
+            <div className="p-4 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+              <h3 className="font-bold text-stone-800 font-display flex items-center gap-2 text-sm">
+                <DollarSign className="w-5 h-5 text-amber-600" />
+                გადახდა — {paymentAppt.customerName}
+              </h3>
+              <button onClick={() => setPaymentAppt(null)} className="p-1.5 hover:bg-amber-100 rounded-lg text-stone-500 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Price */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">ფასი (₾)</label>
+                <input
+                  type="number"
+                  value={payPrice}
+                  onChange={(e) => setPayPrice(e.target.value === '' ? 0 : Number(e.target.value))}
+                  className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-base focus:outline-hidden focus:ring-2 focus:ring-amber-500/30 font-mono"
+                />
+                <p className="text-[10px] text-stone-400 mt-0.5">ფასის ცვლილება შესაძლებელია განსაზღვრულის მიუხედავად.</p>
+              </div>
+
+              {/* Discount */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-600 mb-1">ფასდაკლების ტიპი</label>
+                  <select
+                    value={payDiscountType}
+                    onChange={(e) => setPayDiscountType(e.target.value as DiscountType)}
+                    className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-hidden"
+                  >
+                    <option value="none">არა</option>
+                    <option value="amount">ფიქსირებული ₾</option>
+                    <option value="percent">პროცენტი %</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-600 mb-1">მნიშვნელობა</label>
+                  <input
+                    type="number"
+                    disabled={payDiscountType === 'none'}
+                    value={payDiscountValue}
+                    onChange={(e) => setPayDiscountValue(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm font-mono disabled:bg-stone-100"
+                  />
+                </div>
+              </div>
+
+              {/* Final total */}
+              <div className="flex justify-between items-center bg-amber-50/60 p-3 border border-amber-100 rounded-xl">
+                <span className="text-xs font-bold text-stone-600">გადასახდელი ჯამი:</span>
+                <span className="text-xl font-extrabold text-amber-700 font-mono">{formatGEL(computePayFinal())}</span>
+              </div>
+
+              {/* Full / Partial */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-stone-600">გადახდის მოცულობა</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPayFull(true)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${payFull ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-stone-600 border-stone-200'}`}
+                  >
+                    სრულად
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayFull(false)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${!payFull ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-stone-600 border-stone-200'}`}
+                  >
+                    ნაწილობრივ
+                  </button>
+                </div>
+                {!payFull && (
+                  <input
+                    type="number"
+                    placeholder="გადახდილი თანხა"
+                    value={payPartialAmount}
+                    onChange={(e) => setPayPartialAmount(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm font-mono focus:outline-hidden"
+                  />
+                )}
+              </div>
+
+              {/* Method */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">გადახდის მეთოდი</label>
+                <select
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value as PaymentMethod)}
+                  className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-hidden"
+                >
+                  <option value="cash">ნაღდი</option>
+                  <option value="card">ბარათი</option>
+                  <option value="transfer">გადმორიცხვა</option>
+                  <option value="other">სხვა</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-stone-100 flex gap-2 bg-stone-50/50">
+              <button
+                type="button"
+                onClick={() => setPaymentAppt(null)}
+                className="flex-1 px-4 py-2.5 border border-stone-200 hover:bg-stone-100 text-stone-700 text-sm font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                გაუქმება
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePayment}
+                className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+              >
+                გადახდის დადასტურება
+              </button>
+            </div>
           </div>
         </div>
       )}

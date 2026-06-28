@@ -79,19 +79,15 @@ export default function ProceduresView({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name || !category || price <= 0 || duration <= 0) {
-      alert('გთხოვთ შეავსოთ სწორად ყველა სავალდებულო ველი.');
-      return;
-    }
-
+    // ვალიდაცია მოხსნილია — ვერცერთი ველი არ არის სავალდებულო; ცარიელ ველებს ენიჭება ნაგულისხმევი მნიშვნელობა.
     const payload: Procedure = {
       id: editingProcedure ? editingProcedure.id : `proc_${Date.now()}`,
-      name: name.trim(),
-      category: category.trim(),
+      name: name.trim() || 'უსახელო პროცედურა',
+      category: category.trim() || 'ზოგადი',
       description: description.trim() || undefined,
-      price: Number(price),
+      price: Number(price) || 0,
       minPrice: minPrice ? Number(minPrice) : undefined,
-      duration: Number(duration),
+      duration: Number(duration) || 0,
       isActive: isActive,
       isRecurring: isRecurring,
       recurrenceDays: isRecurring ? Number(recurrenceDays) : undefined,
@@ -258,10 +254,9 @@ export default function ProceduresView({
 
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-stone-600 mb-1">პროცედურის დასახელება *</label>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">პროცედურის დასახელება</label>
                 <input
                   type="text"
-                  required
                   placeholder="მაგ: ლაზერული ეპილაცია"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -271,10 +266,9 @@ export default function ProceduresView({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1">კატეგორია *</label>
+                  <label className="block text-xs font-semibold text-stone-600 mb-1">კატეგორია</label>
                   <input
                     type="text"
-                    required
                     placeholder="მაგ: ეპილაცია"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
@@ -282,11 +276,10 @@ export default function ProceduresView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1">ხანგრძლივობა (წუთებში) *</label>
+                  <label className="block text-xs font-semibold text-stone-600 mb-1">ხანგრძლივობა (წუთებში)</label>
                   <input
                     type="number"
-                    required
-                    min={5}
+                    min={0}
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm focus:outline-hidden font-mono"
@@ -296,11 +289,10 @@ export default function ProceduresView({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1">სტანდარტული ფასი *</label>
+                  <label className="block text-xs font-semibold text-stone-600 mb-1">სტანდარტული ფასი</label>
                   <input
                     type="number"
-                    required
-                    min={1}
+                    min={0}
                     value={price}
                     onChange={(e) => setPrice(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm focus:outline-hidden font-mono"
@@ -336,7 +328,6 @@ export default function ProceduresView({
                     <input
                       type="number"
                       min={1}
-                      required={isRecurring}
                       value={recurrenceDays}
                       onChange={(e) => setRecurrenceDays(Number(e.target.value))}
                       className="w-20 px-2 py-1 border border-stone-200 rounded-lg text-xs text-center font-mono"
