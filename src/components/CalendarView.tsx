@@ -16,7 +16,8 @@ import {
   MessageSquare, 
   AlertTriangle,
   FileText,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 
 interface CalendarViewProps {
@@ -29,6 +30,7 @@ interface CalendarViewProps {
   centerName: string;
   onAddAppointment: (appt: Appointment) => void;
   onUpdateAppointment: (appt: Appointment) => void;
+  onDeleteAppointment: (id: string) => void;
   onAddCustomer: (cust: Customer) => void;
   onLogAction: (action: string, details: string) => void;
   onSendMessage: (phone: string, text: string, templateName: string) => void;
@@ -47,6 +49,7 @@ export default function CalendarView({
   centerName,
   onAddAppointment,
   onUpdateAppointment,
+  onDeleteAppointment,
   onAddCustomer,
   onLogAction,
   onSendMessage,
@@ -426,6 +429,28 @@ export default function CalendarView({
     onLogAction('ვიზიტის გადახდის შეცვლა', `ვიზიტის #${apptIdShort(appt.id)} გადახდის სტატუსი: ${status} (${method})`);
   };
 
+  // სრული წაშლა — ჩაწერა ქრება კალენდრიდან და დრო თავისუფლდება სხვისთვის (ხელმისაწვდომია ყველასთვის)
+  const handleFullDelete = (appt: Appointment) => {
+    if (confirm(`ნამდვილად გსურთ ჩაწერის სრულად წაშლა?\n\n${appt.customerName} — ${appt.dateTime.replace('T', ' ')}\n\nდრო გათავისუფლდება ახალი ჩაწერისთვის.`)) {
+      onDeleteAppointment(appt.id);
+      onLogAction('ჩაწერის სრული წაშლა', `კალენდრიდან წაიშალა ჩაწერა #${apptIdShort(appt.id)} კლიენტისთვის ${appt.customerName}`);
+      setIsBookModalOpen(false);
+    }
+  };
+
+  // გადახდის წაშლა/გაუქმება — მხოლოდ ადმინს (თუ თანამშრომელს შეეშალა)
+  const handleVoidPayment = (appt: Appointment) => {
+    if (confirm(`გადახდის გაუქმება ვიზიტისთვის: ${appt.customerName}?\n\nგადახდილი თანხა განულდება და სტატუსი გახდება "გადაუხდელი".`)) {
+      onUpdateAppointment({
+        ...appt,
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+        updatedAt: new Date().toISOString(),
+      });
+      onLogAction('გადახდის წაშლა', `ადმინმა გააუქმა გადახდა ვიზიტზე #${apptIdShort(appt.id)} (${appt.customerName})`);
+    }
+  };
+
   const apptIdShort = (id: string) => id.substring(0, 8);
 
   const getStatusColor = (status: AppointmentStatus) => {
@@ -686,6 +711,14 @@ export default function CalendarView({
                                     title="რედაქტირება"
                                   >
                                     <Edit className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleFullDelete(appt)}
+                                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-all border border-red-200/40 cursor-pointer"
+                                    title="სრული წაშლა — დრო თავისუფლდება"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               </div>
@@ -1218,27 +1251,31 @@ export default function CalendarView({
               </div>
 
               {/* Modal Actions Footer */}
-              <div className="pt-4 border-t border-stone-100 flex items-center justify-between gap-3">
+              <div className="pt-4 border-t border-stone-100 flex items-center justify-between gap-3 flex-wrap">
                 {selectedAppointment && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if(confirm("ნამდვილად გსურთ ამ ჩაწერის წაშლა?")) {
-                        onUpdateAppointment({
-                          ...selectedAppointment,
-                          appointmentStatus: 'cancelled',
-                          updatedAt: new Date().toISOString()
-                        });
-                        onLogAction('ვიზიტის წაშლა / გაუქმება', `წაიშალა ჩაწერა #${apptIdShort(selectedAppointment.id)} კლიენტისთვის ${selectedAppointment.customerName}`);
-                        setIsBookModalOpen(false);
-                      }
-                    }}
-                    className="px-4 py-2 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold rounded-xl transition-all border border-red-200/40 cursor-pointer"
-                  >
-                    წაშლა
-                  </button>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleFullDelete(selectedAppointment)}
+                      className="inline-flex items-center gap-1 px-4 py-2 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold rounded-xl transition-all border border-red-200/40 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      სრული წაშლა
+                    </button>
+
+                    {currentUser.role === 'admin' && selectedAppointment.paidAmount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleVoidPayment(selectedAppointment)}
+                        className="inline-flex items-center gap-1 px-4 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-semibold rounded-xl transition-all border border-amber-200/50 cursor-pointer"
+                      >
+                        <DollarSign className="w-3.5 h-3.5" />
+                        გადახდის წაშლა
+                      </button>
+                    )}
+                  </div>
                 )}
-                
+
                 <div className="flex gap-2 ml-auto">
                   <button
                     type="button"

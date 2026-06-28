@@ -16,7 +16,8 @@ import {
   Scissors,
   CheckCircle,
   AlertTriangle,
-  FileText
+  FileText,
+  Crown
 } from 'lucide-react';
 
 interface AnalyticsViewProps {
@@ -235,6 +236,23 @@ export default function AnalyticsView({
       })
       .sort((a, b) => b.revenue - a.revenue);
   }, [employees, filteredAppointments]);
+
+  // მფლობელის (ლანას) წილი — ყოველი ვიზიტის თანხის ის ნაწილი, რაც თანამშრომლის პროცენტის შემდეგ რჩება.
+  // თუ ვიზიტს თავად მფლობელი ასრულებს, მთლიანი თანხა მას ერგება.
+  const ownerEmployee = useMemo(() => employees.find(e => e.isOwner), [employees]);
+
+  const ownerSummary = useMemo(() => {
+    if (!ownerEmployee) return null;
+    const completed = filteredAppointments.filter(a => a.appointmentStatus === 'completed');
+    let total = 0;
+    completed.forEach(a => {
+      const perf = employees.find(e => e.id === a.employeeId);
+      const pct = perf ? (perf.procedureCommissions?.[a.procedureId] ?? perf.commissionPercent) : 0;
+      const empShare = (perf && !perf.isOwner) ? Math.round((a.finalPrice * pct) / 100) : 0;
+      total += a.finalPrice - empShare;
+    });
+    return { name: ownerEmployee.name, total, sessions: completed.length };
+  }, [ownerEmployee, employees, filteredAppointments]);
 
   // Split distribution charts (Center vs Employees total share)
   const splitPieData = useMemo(() => {
@@ -466,8 +484,28 @@ export default function AnalyticsView({
         </div>
       )}
 
+      {/* Owner earnings — salon owner (Lana) gets the remaining share */}
+      {ownerSummary && (
+        <div className="bg-gradient-to-br from-yellow-50 to-amber-50/40 border border-yellow-200/60 rounded-2xl shadow-xs p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-yellow-100 text-yellow-700 flex items-center justify-center shrink-0">
+              <Crown className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-yellow-700 uppercase tracking-wide">სალონის მფლობელის წილი</p>
+              <h3 className="font-bold text-stone-800 font-display text-lg">{ownerSummary.name}</h3>
+              <p className="text-xs text-stone-500">თანამშრომლების პროცენტის შემდეგ დარჩენილი თანხა • {ownerSummary.sessions} დასრულებული ვიზიტი</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] text-stone-400 font-semibold">ერიცხება</p>
+            <p className="text-3xl font-extrabold font-mono text-yellow-700">{fmtGEL(ownerSummary.total)}</p>
+          </div>
+        </div>
+      )}
+
       {/* Employee Commission Split Sheet (სახელფასო უწყისი) */}
-      {currentUser.role === 'admin' && (
+      {(currentUser.role === 'admin' || currentUser.isOwner) && (
         <div className="bg-white border border-stone-100 rounded-2xl shadow-xs overflow-hidden">
           <div className="p-4 border-b border-stone-100 bg-stone-50/50 flex justify-between items-center">
             <h3 className="font-bold text-stone-800 font-display text-sm flex items-center gap-1.5">

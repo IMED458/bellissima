@@ -570,19 +570,35 @@ export default function CustomersView({
 
               <div className="pt-3 border-t border-stone-100 flex justify-end gap-2.5">
                 {editingCustomer && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if(confirm("ნამდვილად გსურთ ამ მომხმარებლის არქივში გადაყვანა?")) {
-                        onUpdateCustomer({ ...editingCustomer, status: 'archived', updatedAt: new Date().toISOString() });
-                        onLogAction('კლიენტის დაარქივება', `კლიენტი ${editingCustomer.firstName} ${editingCustomer.lastName} გადავიდა არქივში`);
-                        setIsFormOpen(false);
-                      }
-                    }}
-                    className="mr-auto px-3.5 py-2 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-200 border border-transparent rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                  >
-                    დაარქივება
-                  </button>
+                  <div className="mr-auto flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if(confirm("ნამდვილად გსურთ ამ მომხმარებლის არქივში გადაყვანა?")) {
+                          onUpdateCustomer({ ...editingCustomer, status: 'archived', updatedAt: new Date().toISOString() });
+                          onLogAction('კლიენტის დაარქივება', `კლიენტი ${editingCustomer.firstName} ${editingCustomer.lastName} გადავიდა არქივში`);
+                          setIsFormOpen(false);
+                        }
+                      }}
+                      className="px-3.5 py-2 text-stone-600 bg-stone-100 hover:bg-stone-200 border border-transparent rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      დაარქივება
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if(confirm(`ნამდვილად გსურთ კლიენტის სამუდამოდ წაშლა?\n\n${editingCustomer.firstName} ${editingCustomer.lastName}\n\nეს მოქმედება შეუქცევადია.`)) {
+                          onDeleteCustomer(editingCustomer.id);
+                          onLogAction('კლიენტის წაშლა', `სამუდამოდ წაიშალა კლიენტი: ${editingCustomer.firstName} ${editingCustomer.lastName}`);
+                          setIsFormOpen(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-3.5 py-2 text-red-700 bg-red-50 hover:bg-red-100 border border-red-200/50 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      წაშლა
+                    </button>
+                  </div>
                 )}
 
                 <button

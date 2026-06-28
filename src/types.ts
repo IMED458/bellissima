@@ -33,6 +33,7 @@ export interface Employee {
   commissionPercent: number; // default percentage (e.g. 40)
   procedureCommissions?: Record<string, number>; // procedureId -> custom percentage override
   color?: string; // hex or tailwind class
+  isOwner?: boolean; // სალონის მფლობელი — ერიცხება თანხის დარჩენილი (არა-თანამშრომლის) წილი
 }
 
 export interface Procedure {

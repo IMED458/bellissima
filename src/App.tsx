@@ -214,6 +214,10 @@ export default function App() {
     }
   };
 
+  const handleDeleteAppointment = (id: string) => {
+    remove(COLLECTIONS.appointments, id);
+  };
+
   // Customers
   const handleAddCustomer = (cust: Customer) => {
     upsert(COLLECTIONS.customers, cust);
@@ -247,6 +251,10 @@ export default function App() {
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
     upsert(COLLECTIONS.employees, updatedEmp);
+  };
+
+  const handleDeleteEmployee = (id: string) => {
+    remove(COLLECTIONS.employees, id);
   };
 
   // Templates
@@ -317,14 +325,17 @@ export default function App() {
     );
   }
 
+  // ანალიტიკას ხედავს ადმინი ან მფლობელი (ლანა)
+  const canSeeAnalytics = currentUser.role === 'admin' || !!currentUser.isOwner;
+
   // Sidebar link object
-  const navLinks: { id: string; label: string; icon: any; adminOnly?: boolean }[] = [
+  const navLinks: { id: string; label: string; icon: any; adminOnly?: boolean; ownerOrAdmin?: boolean }[] = [
     { id: 'dashboard', label: 'მთავარი', icon: LayoutDashboard },
     { id: 'calendar', label: 'კალენდარი', icon: CalendarIcon },
     { id: 'customers', label: 'კლიენტები', icon: Users },
     { id: 'procedures', label: 'პროცედურები', icon: Scissors },
     { id: 'employees', label: 'თანამშრომლები', icon: UserSquare2 },
-    { id: 'analytics', label: 'ანალიტიკა', icon: TrendingUp, adminOnly: true },
+    { id: 'analytics', label: 'ანალიტიკა', icon: TrendingUp, ownerOrAdmin: true },
     { id: 'messaging', label: 'შეტყობინებები', icon: MessageSquare },
     { id: 'admin', label: 'ადმინი', icon: Shield, adminOnly: true },
   ];
@@ -351,6 +362,7 @@ export default function App() {
             {navLinks.map(link => {
               // Hide admin links from employee users
               if (link.adminOnly && currentUser.role !== 'admin') return null;
+              if (link.ownerOrAdmin && !canSeeAnalytics) return null;
 
               const Icon = link.icon;
               const isSelected = activeTab === link.id;
@@ -444,6 +456,7 @@ export default function App() {
               <nav className="space-y-1">
                 {navLinks.map(link => {
                   if (link.adminOnly && currentUser.role !== 'admin') return null;
+                  if (link.ownerOrAdmin && !canSeeAnalytics) return null;
 
                   const Icon = link.icon;
                   const isSelected = activeTab === link.id;
@@ -519,6 +532,7 @@ export default function App() {
               centerName={settings.businessName}
               onAddAppointment={handleAddAppointment}
               onUpdateAppointment={handleUpdateAppointment}
+              onDeleteAppointment={handleDeleteAppointment}
               onAddCustomer={handleAddCustomer}
               onLogAction={wrapLogAction}
               onSendMessage={handleDashboardSendMessage}
@@ -560,12 +574,13 @@ export default function App() {
               currentUser={currentUser}
               onAddEmployee={handleAddEmployee}
               onUpdateEmployee={handleUpdateEmployee}
+              onDeleteEmployee={handleDeleteEmployee}
               onLogAction={wrapLogAction}
             />
           )}
 
-          {activeTab === 'analytics' && currentUser.role === 'admin' && (
-            <AnalyticsView 
+          {activeTab === 'analytics' && canSeeAnalytics && (
+            <AnalyticsView
               appointments={appointments}
               customers={customers}
               procedures={procedures}

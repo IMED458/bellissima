@@ -9,11 +9,13 @@ import {
   Calendar, 
   Clock, 
   Percent, 
-  Sparkles, 
-  ShieldAlert, 
-  Lock, 
+  Sparkles,
+  ShieldAlert,
+  Lock,
   FileText,
-  X 
+  Crown,
+  Trash2,
+  X
 } from 'lucide-react';
 
 interface EmployeesViewProps {
@@ -22,6 +24,7 @@ interface EmployeesViewProps {
   currentUser: Employee;
   onAddEmployee: (emp: Employee) => void;
   onUpdateEmployee: (emp: Employee) => void;
+  onDeleteEmployee: (id: string) => void;
   onLogAction: (action: string, details: string) => void;
 }
 
@@ -31,6 +34,7 @@ export default function EmployeesView({
   currentUser,
   onAddEmployee,
   onUpdateEmployee,
+  onDeleteEmployee,
   onLogAction
 }: EmployeesViewProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -49,7 +53,8 @@ export default function EmployeesView({
   const [workingHoursEnd, setWorkingHoursEnd] = useState('20:00');
   const [selectedProcedures, setSelectedProcedures] = useState<string[]>([]);
   const [commissionPercent, setCommissionPercent] = useState<number>(40);
-  
+  const [isOwner, setIsOwner] = useState(false);
+
   // Custom overriding percents: Record<procedureId, percentage>
   const [procedureCommissions, setProcedureCommissions] = useState<Record<string, number>>({});
 
@@ -67,6 +72,7 @@ export default function EmployeesView({
     setWorkingHoursEnd('19:00');
     setSelectedProcedures([]);
     setCommissionPercent(40);
+    setIsOwner(false);
     setProcedureCommissions({});
     setIsFormOpen(true);
   };
@@ -85,6 +91,7 @@ export default function EmployeesView({
     setWorkingHoursEnd(emp.workingHoursEnd);
     setSelectedProcedures(emp.procedures);
     setCommissionPercent(emp.commissionPercent);
+    setIsOwner(emp.isOwner || false);
     setProcedureCommissions(emp.procedureCommissions || {});
     setIsFormOpen(true);
   };
@@ -141,6 +148,7 @@ export default function EmployeesView({
       procedures: selectedProcedures,
       commissionPercent: Number(commissionPercent),
       procedureCommissions: procedureCommissions,
+      isOwner: isOwner,
     };
 
     // If they name themselves Clin Manager / Admin - they could be admin
@@ -157,6 +165,23 @@ export default function EmployeesView({
     }
 
     setIsFormOpen(false);
+  };
+
+  const handleDelete = (emp: Employee) => {
+    const isClinicAdmin = emp.id === 'emp_1' || emp.username === 'admin';
+    if (isClinicAdmin) {
+      alert('მთავარი ადმინისტრატორის წაშლა შეუძლებელია.');
+      return;
+    }
+    if (emp.id === currentUser.id) {
+      alert('საკუთარი ანგარიშის წაშლა შეუძლებელია.');
+      return;
+    }
+    if (confirm(`ნამდვილად გსურთ თანამშრომლის წაშლა?\n\n${emp.name} (${emp.profession})\n\nეს მოქმედება შეუქცევადია.`)) {
+      onDeleteEmployee(emp.id);
+      onLogAction('თანამშრომლის წაშლა', `სისტემიდან წაიშალა სპეციალისტი: ${emp.name} (${emp.profession})`);
+      if (editingEmployee && editingEmployee.id === emp.id) setIsFormOpen(false);
+    }
   };
 
   const weekdaysGeo = ['კვ', 'ორშ', 'სამ', 'ოთხ', 'ხუთ', 'პარ', 'შაბ'];
@@ -210,13 +235,24 @@ export default function EmployeesView({
                   </span>
                   
                   {currentUser.role === 'admin' && (
-                    <button
-                      onClick={() => handleOpenEdit(emp)}
-                      className="p-1 hover:bg-stone-100 text-stone-400 hover:text-stone-700 rounded-lg transition-all"
-                      title="რედაქტირება"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => handleOpenEdit(emp)}
+                        className="p-1 hover:bg-stone-100 text-stone-400 hover:text-stone-700 rounded-lg transition-all"
+                        title="რედაქტირება"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      {!isClinicAdmin && emp.id !== currentUser.id && (
+                        <button
+                          onClick={() => handleDelete(emp)}
+                          className="p-1 hover:bg-red-50 text-stone-400 hover:text-red-600 rounded-lg transition-all"
+                          title="წაშლა"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -226,6 +262,11 @@ export default function EmployeesView({
                     {emp.name}
                     {isClinicAdmin && (
                       <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded">ადმინი</span>
+                    )}
+                    {emp.isOwner && (
+                      <span className="text-[9px] font-bold bg-yellow-100 text-yellow-800 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5">
+                        <Crown className="w-2.5 h-2.5" /> მფლობელი
+                      </span>
                     )}
                   </h3>
                   <p className="text-xs text-stone-500 font-semibold">{emp.profession}</p>
@@ -470,6 +511,24 @@ export default function EmployeesView({
                   />
                 </div>
               </div>
+
+              {/* Owner toggle — salon owner gets the remaining (non-employee) share */}
+              <label className="flex items-start gap-3 bg-yellow-50/60 border border-yellow-200/60 p-3.5 rounded-xl cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isOwner}
+                  onChange={(e) => setIsOwner(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-yellow-600 cursor-pointer"
+                />
+                <span className="text-xs text-stone-700">
+                  <span className="font-bold flex items-center gap-1 text-yellow-800">
+                    <Crown className="w-3.5 h-3.5" /> სალონის მფლობელი
+                  </span>
+                  <span className="text-stone-500 block mt-0.5">
+                    მფლობელს ავტომატურად ერიცხება ყოველი ვიზიტის თანხის ის ნაწილი, რომელიც თანამშრომლის პროცენტის შემდეგ რჩება.
+                  </span>
+                </span>
+              </label>
 
               {/* Default split percentage */}
               <div className="bg-stone-50 border border-stone-100 p-3.5 rounded-xl space-y-3">
