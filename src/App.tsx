@@ -58,6 +58,7 @@ export default function App() {
   // Authentication State
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // Core CRM Shared States — იტვირთება Firestore-დან ცოცხალი გამოწერით
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -71,29 +72,44 @@ export default function App() {
 
   // Firestore — საწყისი მონაცემების ჩატვირთვა (თუ ცარიელია) და ცოცხალი გამოწერები
   useEffect(() => {
-    seedIfEmpty().catch((e) => console.error('seed error', e));
+    seedIfEmpty().catch((e) => {
+      console.error('seed error', e);
+      setDbError(e?.message || String(e));
+    });
 
     const unsubs: Array<() => void> = [];
 
+    // უსაფრთხო ფარი — Firestore-ის ხანგრძლივი დაყოვნებისას მაინც ჩაიტვირთოს ეკრანი
+    const safety = setTimeout(() => setAuthResolved(true), 6000);
+
     // employees — პირველი snapshot-ით ვცდილობთ სესიის აღდგენას
     unsubs.push(
-      subscribeCollection<Employee>(COLLECTIONS.employees, (items) => {
-        setEmployees(items);
-        setCurrentUser((prev) => {
-          if (prev) {
-            // მიმდინარე მომხმარებლის ჩანაწერი თუ განახლდა — ვასინქრონებთ
-            const fresh = items.find((e) => e.id === prev.id);
-            return fresh || prev;
-          }
-          const storedId = localStorage.getItem(SESSION_KEY);
-          if (storedId) {
-            const restored = items.find((e) => e.id === storedId && e.isActive);
-            if (restored) return restored;
-          }
-          return prev;
-        });
-        setAuthResolved(true);
-      })
+      subscribeCollection<Employee>(
+        COLLECTIONS.employees,
+        (items) => {
+          setDbError(null);
+          setEmployees(items);
+          setCurrentUser((prev) => {
+            if (prev) {
+              // მიმდინარე მომხმარებლის ჩანაწერი თუ განახლდა — ვასინქრონებთ
+              const fresh = items.find((e) => e.id === prev.id);
+              return fresh || prev;
+            }
+            const storedId = localStorage.getItem(SESSION_KEY);
+            if (storedId) {
+              const restored = items.find((e) => e.id === storedId && e.isActive);
+              if (restored) return restored;
+            }
+            return prev;
+          });
+          setAuthResolved(true);
+        },
+        (e) => {
+          // შეცდომისასაც ვუშვებთ ეკრანს (ბლენქი/გაჭედვა არ ხდება)
+          setDbError(e?.message || String(e));
+          setAuthResolved(true);
+        }
+      )
     );
 
     unsubs.push(subscribeCollection<Procedure>(COLLECTIONS.procedures, setProcedures));
@@ -112,7 +128,10 @@ export default function App() {
     );
     unsubs.push(subscribeSettings(setSettings));
 
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      clearTimeout(safety);
+      unsubs.forEach((u) => u());
+    };
   }, []);
 
   // Navigation Tabs state
@@ -286,7 +305,16 @@ export default function App() {
 
   // Render Login state shield
   if (!currentUser) {
-    return <LoginScreen employees={employees} onLogin={handleLogin} centerName={settings.businessName} />;
+    return (
+      <>
+        {dbError && (
+          <div className="fixed top-0 inset-x-0 z-50 bg-red-600 text-white text-xs md:text-sm font-semibold px-4 py-2.5 text-center shadow-md">
+            ბაზასთან კავშირი ვერ დამყარდა — შეამოწმეთ Firestore-ის წვდომის წესები (rules). მონაცემები ვერ ჩაიტვირთება ამ პრობლემის მოგვარებამდე.
+          </div>
+        )}
+        <LoginScreen employees={employees} onLogin={handleLogin} centerName={settings.businessName} />
+      </>
+    );
   }
 
   // Sidebar link object

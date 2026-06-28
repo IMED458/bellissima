@@ -51,18 +51,34 @@ export const defaultSettings: SystemSettings = {
 // ცოცხალი გამოწერა კოლექციაზე — ცვლილება აისახება წამიერად (onSnapshot)
 export function subscribeCollection<T>(
   name: string,
-  cb: (items: T[]) => void
+  cb: (items: T[]) => void,
+  onError?: (e: Error) => void
 ): () => void {
-  return onSnapshot(collection(db, name), (snap) => {
-    cb(snap.docs.map((d) => d.data() as T));
-  });
+  return onSnapshot(
+    collection(db, name),
+    (snap) => cb(snap.docs.map((d) => d.data() as T)),
+    (err) => {
+      console.error(`Firestore subscribe error (${name})`, err);
+      onError?.(err);
+    }
+  );
 }
 
 // ცოცხალი გამოწერა პარამეტრების ერთ დოკუმენტზე
-export function subscribeSettings(cb: (s: SystemSettings) => void): () => void {
-  return onSnapshot(SETTINGS_DOC, (snap) => {
-    if (snap.exists()) cb(snap.data() as SystemSettings);
-  });
+export function subscribeSettings(
+  cb: (s: SystemSettings) => void,
+  onError?: (e: Error) => void
+): () => void {
+  return onSnapshot(
+    SETTINGS_DOC,
+    (snap) => {
+      if (snap.exists()) cb(snap.data() as SystemSettings);
+    },
+    (err) => {
+      console.error('Firestore settings subscribe error', err);
+      onError?.(err);
+    }
+  );
 }
 
 // ჩაწერა/განახლება — ID ცნობილია ენტითის id ველიდან
