@@ -1,24 +1,27 @@
-import React, { useState } from 'react';
-import { 
-  Appointment, 
-  Customer, 
-  Employee, 
-  Procedure, 
-  AuditLog, 
-  MessageLog, 
-  MessageTemplate, 
-  SystemSettings 
+import React, { useState, useEffect } from 'react';
+import {
+  Appointment,
+  Customer,
+  Employee,
+  Procedure,
+  AuditLog,
+  MessageLog,
+  MessageTemplate,
+  SystemSettings
 } from './types';
 
-// Import Mock Data
-import { 
-  initialProcedures, 
-  initialEmployees, 
-  initialCustomers, 
-  initialMessageTemplates, 
-  initialAppointments, 
-  initialActionLogs 
-} from './data/initialData';
+// Firebase (Firestore) data layer — ყველა მონაცემი ინახება Firestore-ზე, ცოცხალი სინქით
+import {
+  COLLECTIONS,
+  defaultSettings,
+  subscribeCollection,
+  subscribeSettings,
+  seedIfEmpty,
+  upsert,
+  remove,
+  saveSettings,
+  clearCollection,
+} from './firestoreService';
 
 // Import Components
 import LoginScreen from './components/LoginScreen';
@@ -44,44 +47,73 @@ import {
   LogOut, 
   Menu, 
   X, 
-  Clock, 
-  Bell 
+  Clock,
+  Bell,
+  Loader2
 } from 'lucide-react';
+
+const SESSION_KEY = 'bellissima_session_uid';
 
 export default function App() {
   // Authentication State
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
 
-  // Core CRM Shared States
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [procedures, setProcedures] = useState<Procedure[]>(initialProcedures);
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
-  const [templates, setTemplates] = useState<MessageTemplate[]>(() => 
-    initialMessageTemplates.map(t => ({
-      ...t,
-      body: t.text
-    }))
-  );
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => 
-    initialActionLogs.map(l => ({
-      id: l.id,
-      timestamp: l.timestamp,
-      user: l.userName,
-      action: l.action,
-      details: l.details
-    }))
-  );
+  // Core CRM Shared States — იტვირთება Firestore-დან ცოცხალი გამოწერით
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [messageLogs, setMessageLogs] = useState<MessageLog[]>([]);
-  
-  const [settings, setSettings] = useState<SystemSettings>({
-    businessName: "სილამაზისა და ესთეტიკის ცენტრი BELLISSIMA",
-    workingHoursStart: "09:00",
-    workingHoursEnd: "20:00",
-    currency: "GEL",
-    whatsappGatewayStatus: true,
-    enforceMinPriceLimit: true
-  });
+  const [settings, setSettings] = useState<SystemSettings>(defaultSettings);
+
+  // Firestore — საწყისი მონაცემების ჩატვირთვა (თუ ცარიელია) და ცოცხალი გამოწერები
+  useEffect(() => {
+    seedIfEmpty().catch((e) => console.error('seed error', e));
+
+    const unsubs: Array<() => void> = [];
+
+    // employees — პირველი snapshot-ით ვცდილობთ სესიის აღდგენას
+    unsubs.push(
+      subscribeCollection<Employee>(COLLECTIONS.employees, (items) => {
+        setEmployees(items);
+        setCurrentUser((prev) => {
+          if (prev) {
+            // მიმდინარე მომხმარებლის ჩანაწერი თუ განახლდა — ვასინქრონებთ
+            const fresh = items.find((e) => e.id === prev.id);
+            return fresh || prev;
+          }
+          const storedId = localStorage.getItem(SESSION_KEY);
+          if (storedId) {
+            const restored = items.find((e) => e.id === storedId && e.isActive);
+            if (restored) return restored;
+          }
+          return prev;
+        });
+        setAuthResolved(true);
+      })
+    );
+
+    unsubs.push(subscribeCollection<Procedure>(COLLECTIONS.procedures, setProcedures));
+    unsubs.push(subscribeCollection<Customer>(COLLECTIONS.customers, setCustomers));
+    unsubs.push(subscribeCollection<MessageTemplate>(COLLECTIONS.templates, setTemplates));
+    unsubs.push(subscribeCollection<Appointment>(COLLECTIONS.appointments, setAppointments));
+    unsubs.push(
+      subscribeCollection<AuditLog>(COLLECTIONS.auditLogs, (items) =>
+        setAuditLogs([...items].sort((a, b) => b.timestamp.localeCompare(a.timestamp)))
+      )
+    );
+    unsubs.push(
+      subscribeCollection<MessageLog>(COLLECTIONS.messageLogs, (items) =>
+        setMessageLogs([...items].sort((a, b) => b.sentAt.localeCompare(a.sentAt)))
+      )
+    );
+    unsubs.push(subscribeSettings(setSettings));
+
+    return () => unsubs.forEach((u) => u());
+  }, []);
 
   // Navigation Tabs state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'customers' | 'procedures' | 'employees' | 'analytics' | 'messaging' | 'admin'>('dashboard');
@@ -90,31 +122,33 @@ export default function App() {
   // Deep linking helper state (allows prefilling and redirecting to Booking modal from other views)
   const [prefilledAppt, setPrefilledAppt] = useState<Partial<Appointment> | null>(null);
 
-  // Authentication Sign In
+  // Authentication Sign In — სესია ნარჩუნდება გასვლის ხელით დაჭერამდე
   const handleLogin = (user: Employee) => {
+    localStorage.setItem(SESSION_KEY, user.id);
     setCurrentUser(user);
     handleLogAction(user, 'სისტემაში ავტორიზაცია', `თანამშრომელი ${user.name} წარმატებით შევიდა CRM-ში.`);
   };
 
-  // Authentication Sign Out
+  // Authentication Sign Out — მხოლოდ ხელით გასვლისას
   const handleLogout = () => {
     if (currentUser) {
       handleLogAction(currentUser, 'სისტემიდან გასვლა', `${currentUser.name} გავიდა CRM-დან.`);
     }
+    localStorage.removeItem(SESSION_KEY);
     setCurrentUser(null);
     setActiveTab('dashboard');
   };
 
-  // Logging engine
+  // Logging engine — ინახება Firestore-ზე
   const handleLogAction = (userObj: Employee, action: string, details: string) => {
     const newLog: AuditLog = {
-      id: `log_${Date.now()}`,
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       timestamp: new Date().toISOString(),
       user: userObj.name,
       action,
       details
     };
-    setAuditLogs(prev => [newLog, ...prev]);
+    upsert(COLLECTIONS.auditLogs, newLog);
   };
 
   // Wrapping logger for general components
@@ -130,33 +164,31 @@ export default function App() {
   
   // Appointments
   const handleAddAppointment = (appt: Appointment) => {
-    setAppointments(prev => [appt, ...prev]);
+    upsert(COLLECTIONS.appointments, appt);
   };
 
   const handleUpdateAppointment = (updatedAppt: Appointment) => {
-    setAppointments(prev => prev.map(a => a.id === updatedAppt.id ? updatedAppt : a));
-    
+    upsert(COLLECTIONS.appointments, updatedAppt);
+
     // Automatically trigger follow-up recommended check if appointment was completed and procedure is marked isRecurring
     if (updatedAppt.appointmentStatus === 'completed') {
       const proc = procedures.find(p => p.id === updatedAppt.procedureId);
       if (proc && proc.isRecurring) {
         const days = proc.recurrenceDays || 21;
-        
+
         // Calculate new date
         const originDate = new Date(updatedAppt.dateTime);
         originDate.setDate(originDate.getDate() + days);
         const nextDateStr = originDate.toISOString().split('T')[0];
 
-        setCustomers(prev => prev.map(c => {
-          if (c.id === updatedAppt.customerId) {
-            return {
-              ...c,
-              nextRecommendedDate: nextDateStr,
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return c;
-        }));
+        const cust = customers.find(c => c.id === updatedAppt.customerId);
+        if (cust) {
+          upsert(COLLECTIONS.customers, {
+            ...cust,
+            nextRecommendedDate: nextDateStr,
+            updatedAt: new Date().toISOString()
+          });
+        }
 
         wrapLogAction('ლაზერის გეგმიური განრიგი', `კლიენტს ${updatedAppt.customerName} გაეწერა შემდეგი ვიზიტი: ${nextDateStr} პროცედურისთვის: ${proc.name}`);
       }
@@ -165,55 +197,55 @@ export default function App() {
 
   // Customers
   const handleAddCustomer = (cust: Customer) => {
-    setCustomers(prev => [cust, ...prev]);
+    upsert(COLLECTIONS.customers, cust);
   };
 
   const handleUpdateCustomer = (updatedCust: Customer) => {
-    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? updatedCust : c));
+    upsert(COLLECTIONS.customers, updatedCust);
   };
 
   const handleDeleteCustomer = (id: string) => {
-    setCustomers(prev => prev.filter(c => c.id !== id));
+    remove(COLLECTIONS.customers, id);
   };
 
   // Procedures
   const handleAddProcedure = (proc: Procedure) => {
-    setProcedures(prev => [proc, ...prev]);
+    upsert(COLLECTIONS.procedures, proc);
   };
 
   const handleUpdateProcedure = (updatedProc: Procedure) => {
-    setProcedures(prev => prev.map(p => p.id === updatedProc.id ? updatedProc : p));
+    upsert(COLLECTIONS.procedures, updatedProc);
   };
 
   const handleDeleteProcedure = (id: string) => {
-    setProcedures(prev => prev.filter(p => p.id !== id));
+    remove(COLLECTIONS.procedures, id);
   };
 
   // Employees
   const handleAddEmployee = (emp: Employee) => {
-    setEmployees(prev => [emp, ...prev]);
+    upsert(COLLECTIONS.employees, emp);
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
-    setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
+    upsert(COLLECTIONS.employees, updatedEmp);
   };
 
   // Templates
   const handleAddTemplate = (tpl: MessageTemplate) => {
-    setTemplates(prev => [tpl, ...prev]);
+    upsert(COLLECTIONS.templates, tpl);
   };
 
   const handleUpdateTemplate = (updatedTpl: MessageTemplate) => {
-    setTemplates(prev => prev.map(t => t.id === updatedTpl.id ? updatedTpl : t));
+    upsert(COLLECTIONS.templates, updatedTpl);
   };
 
   const handleDeleteTemplate = (id: string) => {
-    setTemplates(prev => prev.filter(t => t.id !== id));
+    remove(COLLECTIONS.templates, id);
   };
 
   // Message Logs
   const handleAddMessageLog = (msg: MessageLog) => {
-    setMessageLogs(prev => [msg, ...prev]);
+    upsert(COLLECTIONS.messageLogs, msg);
   };
 
   const handleDashboardSendMessage = (phone: string, text: string, templateName: string) => {
@@ -241,6 +273,16 @@ export default function App() {
     setPrefilledAppt(prefilledData);
     setActiveTab('calendar');
   };
+
+  // Firestore-დან მონაცემების/სესიის აღდგენამდე — ჩატვირთვის ეკრანი (ბლენქი არ ჩანს)
+  if (!authResolved) {
+    return (
+      <div className="min-h-screen bg-[#fcfbfa] flex flex-col items-center justify-center gap-4 text-stone-500">
+        <Loader2 className="w-10 h-10 animate-spin text-primary-600" />
+        <p className="text-sm font-medium">იტვირთება...</p>
+      </div>
+    );
+  }
 
   // Render Login state shield
   if (!currentUser) {
@@ -525,9 +567,9 @@ export default function App() {
               employees={employees}
               currentUser={currentUser}
               settings={settings}
-              onUpdateSettings={setSettings}
+              onUpdateSettings={(s) => saveSettings(s)}
               onLogAction={wrapLogAction}
-              onClearLogs={() => setAuditLogs([])}
+              onClearLogs={() => clearCollection(COLLECTIONS.auditLogs)}
             />
           )}
         </main>

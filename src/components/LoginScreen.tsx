@@ -107,24 +107,6 @@ export default function LoginScreen({ employees, onLogin, centerName }: LoginScr
               </button>
             </div>
           </form>
-
-          <div className="mt-6 border-t border-stone-100 pt-6">
-            <div className="text-xs text-stone-400 text-center space-y-2">
-              <p>საწყისი სატესტო ანგარიშები შესასვლელად:</p>
-              <div className="grid grid-cols-2 gap-2 text-left bg-stone-50 p-2.5 rounded-xl border border-stone-100">
-                <div>
-                  <p className="font-semibold text-stone-600">ადმინისტრატორი:</p>
-                  <p>Username: <code className="bg-white px-1 py-0.5 rounded border border-stone-200">admin</code></p>
-                  <p>Password: <code className="bg-white px-1 py-0.5 rounded border border-stone-200">password123</code></p>
-                </div>
-                <div>
-                  <p className="font-semibold text-stone-600">თანამშრომელი:</p>
-                  <p>Username: <code className="bg-white px-1 py-0.5 rounded border border-stone-200">tamar</code></p>
-                  <p>Password: <code className="bg-white px-1 py-0.5 rounded border border-stone-200">user123</code></p>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
